@@ -11,8 +11,7 @@ import json
 
 
 # Replace with your actual Google AI Studio API key
-# GOOGLE_API_KEY = "AIzaSyC31WkzS4PIwzE9roCYU2jwzHlx86JBqis"
-GOOGLE_API_KEY = "AIzaSyARBYGybxXDO_11GyYR0yH8WbrNKP0se90"
+
 genai.configure(api_key=GOOGLE_API_KEY)
 
 # Function to extract text from PDF
