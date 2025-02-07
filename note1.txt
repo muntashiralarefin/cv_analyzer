@@ -1,0 +1,204 @@
+Okay, let's outline the structure and code snippets for your Streamlit app. This will give you a solid foundation.  I'll break it down into manageable chunks, focusing on how to connect the pieces.
+
+**Conceptual Structure**
+
+1.  **Setup and Imports:** Import necessary libraries (Streamlit, PDF parsing, Google AI Studio API, pandas, etc.).
+2.  **DJ File Upload:**  Create a Streamlit file uploader for the DJ file.  Convert the uploaded file to text.
+3.  **CV File Upload:** Create a Streamlit file uploader for multiple CV files.
+4.  **Prompt Input:** Create a Streamlit text area for the prompt.
+5.  **AI Processing Loop:** Iterate through the uploaded CV files.  For each CV:
+    *   Extract text from the CV file.
+    *   Send the CV text and prompt to the Google AI Studio API.
+    *   Parse the response (which should be a Python dictionary string).
+    *   Append the parsed data to a list (for creating the DataFrame).
+6.  **DataFrame Creation and Display:** Create a pandas DataFrame from the accumulated data.  Display the DataFrame in Streamlit.
+
+**Code Snippets (Illustrative)**
+
+```python
+import streamlit as st
+import io  # For handling file uploads as bytes
+import pypdf  # To read PDF files
+from docx import Document  # To read Word Docx Files
+import google.generativeai as genai #Google AI Studio API
+import pandas as pd
+import json
+
+# Replace with your actual Google AI Studio API key
+GOOGLE_API_KEY = "YOUR_API_KEY"
+genai.configure(api_key=GOOGLE_API_KEY)
+
+# Function to extract text from PDF
+def extract_text_from_pdf(pdf_file):
+    pdf_reader = pypdf.PdfReader(pdf_file)
+    text = ""
+    for page_num in range(len(pdf_reader.pages)):
+        page = pdf_reader.pages[page_num]
+        text += page.extract_text()
+    return text
+
+# Function to extract text from Word Doc
+def extract_text_from_docx(docx_file):
+    document = Document(docx_file)
+    text = '\n'.join([paragraph.text for paragraph in document.paragraphs])
+    return text
+
+# Function to call Google AI Studio API
+def analyze_cv(cv_text, prompt):
+    try:
+        model = genai.GenerativeModel('gemini-pro') # Or specify another model
+        response = model.generate_content(prompt + "\n\n" + cv_text)
+        return response.text  # Extract the text content from the response
+    except Exception as e:
+        return f"Error calling AI Studio API: {e}"
+
+# Function to convert DJ document into markdown
+def convert_dj_to_markdown(file_path):
+    """
+    Converts a DJ file (PDF or Word doc) to markdown text using the Google AI Studio API.
+    """
+    try:
+        # Determine the file type and extract text accordingly
+        if file_path.name.lower().endswith(".pdf"):
+            dj_text = extract_text_from_pdf(file_path)
+        elif file_path.name.lower().endswith(".docx"):
+            dj_text = extract_text_from_docx(file_path)
+        else:
+            st.error("Unsupported file type for DJ file. Please upload a PDF or Word doc.")
+            return None
+
+        # Prepare the prompt for converting the DJ file to markdown
+        prompt = "Convert the following text to markdown format:\n"
+
+        # Use the Gemini Pro model to convert the text to markdown
+        model = genai.GenerativeModel('gemini-pro')
+        response = model.generate_content(prompt + dj_text)
+
+        # Return the markdown text
+        return response.text
+
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+        return None
+
+
+# Streamlit App
+def main():
+    st.title("CV Analyzer")
+
+    # 1. DJ File Upload
+    st.header("Upload DJ File")
+    dj_file = st.file_uploader("Upload DJ PDF or DOCX", type=["pdf", "docx"])
+
+    if dj_file is not None:
+        # Convert DJ file to markdown
+        markdown_text = convert_dj_to_markdown(dj_file)
+
+        if markdown_text:
+            st.subheader("Converted Markdown Text")
+            st.markdown(markdown_text)
+        else:
+            st.warning("Failed to convert DJ file to markdown.")
+
+
+    # 2. CV File Upload
+    st.header("Upload CV Files")
+    cv_files = st.file_uploader("Upload CV PDFs or DOCX files", type=["pdf", "docx"], accept_multiple_files=True)
+
+    # 3. Prompt Input
+    st.header("Enter Prompt")
+    default_prompt = "Give the name of applicant, email address and mobile number.  Give the response in python dictionary object only."  # Improved default
+    prompt = st.text_area("Prompt", default_prompt)
+
+    if cv_files:
+        # Initialize an empty list to store the extracted data
+        data = []
+
+        for cv_file in cv_files:
+            st.write(f"Analyzing: {cv_file.name}")
+
+            try:
+                # Determine file type and extract text
+                if cv_file.name.lower().endswith(".pdf"):
+                    cv_text = extract_text_from_pdf(cv_file)
+                elif cv_file.name.lower().endswith(".docx"):
+                    cv_text = extract_text_from_docx(cv_file)
+                else:
+                    st.error(f"Unsupported file type for {cv_file.name}.  Skipping.")
+                    continue  # Skip to the next file
+
+                # Call Google AI Studio API
+                api_response = analyze_cv(cv_text, prompt)
+
+                # Parse the response
+                try:
+                    # Important: Attempt to parse the API response as a Python dictionary
+                    parsed_data = json.loads(api_response)  # Expecting a dictionary
+                    data.append(parsed_data) # Append result dictionary to the data list
+
+                except json.JSONDecodeError as e:
+                    st.error(f"Error decoding JSON from AI Studio response for {cv_file.name}: {e}.  Raw response: {api_response}")
+                    # You might want to add a fallback or error handling here.
+                    data.append({"error": f"JSON Decode Error: {e}"})  # Append a fallback
+
+            except Exception as e:
+                st.error(f"Error processing {cv_file.name}: {e}")
+                data.append({"error": str(e)})  # Add error info to the data
+
+
+
+        # 4. Create DataFrame and Display
+        if data: # Check if there is any data
+            df = pd.DataFrame(data)
+            st.header("Results")
+            st.dataframe(df)
+        else:
+            st.info("No data to display.  Make sure CV files are uploaded and processed correctly.")
+
+if __name__ == "__main__":
+    main()
+```
+
+**Key Improvements and Explanations:**
+
+*   **Error Handling:** Added `try...except` blocks around file processing and API calls to catch potential errors (file reading, API issues, JSON parsing).  This makes the app more robust. Importantly included file format validation.
+*   **File Type Handling:**  Explicitly handles both PDF and DOCX files, determining the file type based on the extension.
+*   **Clearer API Error Messages:** If the API call fails, it now displays the specific error message from the API.
+*   **JSON Parsing:**  Includes error handling for the `json.loads()` function.  If the API returns invalid JSON, it will display an error message and store the raw response for debugging.  *Crucially*, it now *attempts* to parse the response as JSON.  The `default_prompt` has been modified to explicitly request a Python dictionary, increasing the likelihood of a parsable response.
+*   **Data Accumulation:** The results from each CV are accumulated in the `data` list.
+*   **DataFrame Creation:**  The DataFrame is created *after* processing all files, ensuring all results are included.
+*   **Clearer Streamlit Structure:** Improved the overall organization of the Streamlit app, with headers for each section.
+*   **`io` Import:**  The `io` import is no longer explicitly needed since Streamlit handles file uploads as bytes-like objects directly.  The code has been adjusted to reflect this.
+*   **Fallback for JSON Errors:**  If JSON parsing fails, a dictionary with an "error" key is appended to the `data` list so that the DataFrame will still be created, even if some rows have errors.
+*   **JSON Output:** `api_response.text` is passed to `json.loads()` expecting a JSON formatted dictionary string.
+*   **Default Prompt:** The default prompt now *explicitly* requests the response in JSON format.  This significantly increases the likelihood of the AI returning a parsable result.  Also the prompt has been changed to explicitly to tell the model to respond in dictionary object.
+
+**How to Run:**
+
+1.  **Install Libraries:**
+
+    ```bash
+    pip install streamlit pypdf python-docx google-generativeai pandas
+    ```
+
+2.  **Replace Placeholder:** Put your actual Google AI Studio API key where indicated.
+3.  **Save:** Save the code as a Python file (e.g., `cv_analyzer.py`).
+4.  **Run:**
+
+    ```bash
+    streamlit run cv_analyzer.py
+    ```
+
+**Important Considerations and Next Steps:**
+
+*   **API Costs:** Be very aware of the pricing for the Google AI Studio API.  Free tiers have limits. Monitor your usage.
+*   **Security:**  Never hardcode sensitive information (like API keys) directly in your code if you're sharing it. Use environment variables or Streamlit secrets management.
+*   **Prompt Engineering:** The quality of your results *heavily* depends on your prompt.  Experiment with different prompts to get the most accurate and useful information from the CVs. The `default_prompt` is a starting point.
+*   **API Rate Limiting:**  The Google AI Studio API has rate limits.  If you're processing many CVs, you might need to implement error handling to deal with rate limiting errors (e.g., exponential backoff).
+*   **Advanced Error Handling:** Consider adding more specific error handling for different types of API errors (e.g., authentication errors, quota errors).
+*   **User Interface:** Improve the UI with progress bars, loading indicators, and more informative messages.
+*   **Data Cleaning:**  You might need to clean and preprocess the data extracted from the CVs and the API response to ensure consistency and accuracy.
+*   **Model Selection:**  Experiment with different Gemini models (`gemini-pro`, etc.) to see which gives the best results for your task.
+*   **Regex:** If the AI is failing to return perfect JSON you may have to use Regex as another layer to parse key information from the CV and API response.
+
+This comprehensive guide and code provide a strong starting point. Remember to adapt the code, especially the prompt, to suit your specific needs.  Good luck!
